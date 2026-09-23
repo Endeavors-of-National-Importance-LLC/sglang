@@ -262,6 +262,9 @@ class ForwardMode(IntEnum):
     def is_cpu_graph(self):
         return self == ForwardMode.DECODE
 
+    def is_dllm_extend(self):
+        return self == ForwardMode.DLLM_EXTEND
+
     def is_split_prefill(self):
         return self == ForwardMode.SPLIT_PREFILL
 
@@ -1021,10 +1024,10 @@ class ForwardBatch(ForwardBatchDeepSeekMHAMixin):
                 model_runner.lora_manager.reset_lora_batch()
             return ret
 
-        # Override the positions with diffusion LLM or spec_info
-        if batch.dllm_config is not None:
+        # A dLLM denoise pass rewrites a fixed-size block in place. Context
+        # encoding uses the ordinary EXTEND position path below.
+        if batch.dllm_config is not None and ret.forward_mode.is_dllm_extend():
             block_size = batch.dllm_config.block_size
-            # Use int64 for AMD rotary embedding kernel compatibility
             positions_dtype = torch.int64 if is_hip() or _is_npu else torch.int32
             ret.positions = torch.tensor(
                 [
@@ -1976,7 +1979,8 @@ class ForwardBatch(ForwardBatchDeepSeekMHAMixin):
 
 
 def enable_num_token_non_padded():
-    return get_parallel().moe_ep_size > 1
+    # Elastic joiners also need graph padding masked after joining WORLD.
+    return get_parallel().moe_ep_size > 1 or world_dp_gather_enabled()
 
 
 def build_inner_fb_view(
