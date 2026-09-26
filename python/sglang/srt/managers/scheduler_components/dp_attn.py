@@ -226,7 +226,6 @@ def _update_gather_batch(
     require_mlp_tp_gather: bool,
     skip_global_metadata=False,
 ):
-    # TODO: handle the case when moe_dense_tp_size != 1
     if not require_mlp_tp_gather:
         batch.global_num_tokens = [mlp_sync_info.num_tokens]
         batch.global_num_tokens_for_logprob = [mlp_sync_info.num_tokens_for_logprob]
@@ -347,6 +346,8 @@ def _local_prefill_cuda_graph_vote(
 
     if prefill_graph_runner is None:
         return True
+    if not isinstance(prefill_graph_runner, PrefillCudaGraphRunner):
+        return False
     return prefill_graph_runner.can_replay_locally(
         batch_size=local_batch.batch_size(),
         num_tokens=num_tokens,
@@ -493,7 +494,6 @@ def prepare_mlp_sync_batch_raw(
                 mlp_sync_info.tp0_info_cpu[:, 4:6],
             )
         )
-
     # Decide whether to emit idle batch
     if skip_all_gather:
         # Skip idle batch when attn-dp=1 (and always under DWDP: ranks run independently)
